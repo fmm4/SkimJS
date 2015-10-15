@@ -26,13 +26,19 @@ evalExpr env (AssignExpr OpAssign (LVar var) expr) = do
         _ -> do
             e <- evalExpr env expr
             setVar var e
-
+			
 evalStmt :: StateT -> Statement -> StateTransformer Value
 evalStmt env EmptyStmt = return Nil
 evalStmt env (VarDeclStmt []) = return Nil
 evalStmt env (VarDeclStmt (decl:ds)) =
     varDecl env decl >> evalStmt env (VarDeclStmt ds)
 evalStmt env (ExprStmt expr) = evalExpr env expr
+evalStmt env (ForStmt initCount cond itera act) = 	evalStmt env initCount
+evalStmt env (ForInit stmt) = evalStmt env stmt	
+--FOR
+
+
+
 
 -- Do not touch this one :)
 evaluate :: StateT -> [Statement] -> StateTransformer Value
