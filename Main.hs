@@ -26,15 +26,44 @@ evalExpr env (AssignExpr OpAssign (LVar var) expr) = do
         _ -> do
             e <- evalExpr env expr
             setVar var e
-			
+evalExpr env _  = return Nil
+
 evalStmt :: StateT -> Statement -> StateTransformer Value
 evalStmt env EmptyStmt = return Nil
 evalStmt env (VarDeclStmt []) = return Nil
 evalStmt env (VarDeclStmt (decl:ds)) =
     varDecl env decl >> evalStmt env (VarDeclStmt ds)
 evalStmt env (ExprStmt expr) = evalExpr env expr
-evalStmt env (ForStmt initCount cond itera act) = 	evalStmt env initCount
-evalStmt env (ForInit stmt) = evalStmt env stmt	
+evalStmt env (BlockStmt []) = return Nil
+evalStmt env (BlockStmt (stmt1:stmt2)) = do
+    evalStmt env stmt1
+    evalStmt env (BlockStmt stmt2)
+evalStmt env (ForStmt initi condi itera action) = do
+    evalFor env initi
+    case condi of
+        (Just (a)) -> do 
+            Bool tf <- evalExpr env a
+            if tf then do
+                evalStmt env action
+                case itera of 
+                    (Just (b)) -> evalExpr env b
+                    Nothing -> return Nil
+                evalStmt env (ForStmt NoInit condi itera action)
+            else 
+                return Nil
+        Nothing -> do 
+            evalStmt env action
+            case itera of 
+                    (Just (b)) -> evalExpr env b
+                    Nothing -> return Nil
+            evalStmt env (ForStmt NoInit condi itera action)
+
+evalFor :: StateT -> ForInit -> StateTransformer Value
+evalFor env (VarInit a) = evalStmt env (VarDeclStmt a)
+evalFor env NoInit = return Nil
+evalFor env (ExprInit b) = evalExpr env b 
+-- [ForStmt () (Just () (Just (UnaryAssignExpr PostfixInc (LVar
+-- "i"))) (BlockStmt [])]
 --FOR
 
 
