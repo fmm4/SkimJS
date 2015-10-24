@@ -26,7 +26,13 @@ evalExpr env (AssignExpr OpAssign (LVar var) expr) = do
         _ -> do
             e <- evalExpr env expr
             setVar var e
-evalExpr env _  = return Nil
+evalExpr env (UnaryAssignExpr op (LVar var))= do
+    v <- stateLookup env var
+    case v of
+        (Error _) -> return Nil
+        _ -> do
+            e <- postfixOp env op v
+            setVar var e
 
 evalStmt :: StateT -> Statement -> StateTransformer Value
 evalStmt env EmptyStmt = return Nil
@@ -78,6 +84,9 @@ evaluate env (s:ss) = evalStmt env s >> evaluate env ss
 --
 -- Operators
 --
+
+postfixOp :: StateT -> UnaryAssignOp -> Value -> StateTransformer Value
+postfixOp env PostfixInc (Int v1) = return $ Int $ v1 + 1
 
 infixOp :: StateT -> InfixOp -> Value -> Value -> StateTransformer Value
 infixOp env OpAdd  (Int  v1) (Int  v2) = return $ Int  $ v1 + v2
