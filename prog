@@ -1,0 +1,6 @@
+1) Onde guardar as funções?
+2) Como fazer variaveis locais? Stack?
+
+
+ExprStmt (AssignExpr OpAssign (LVar "b") (IntLit 5))])
+VarDeclStmt [VarDecl (Id "b") (Just (IntLit 5))]])
