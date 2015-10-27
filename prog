@@ -4,3 +4,6 @@
 
 ExprStmt (AssignExpr OpAssign (LVar "b") (IntLit 5))])
 VarDeclStmt [VarDecl (Id "b") (Just (IntLit 5))]])
+
+
+IfSingleStmt
