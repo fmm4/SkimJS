@@ -42,8 +42,11 @@ evalStmt env (VarDeclStmt (decl:ds)) =
 evalStmt env (ExprStmt expr) = evalExpr env expr
 evalStmt env (BlockStmt []) = return Nil
 evalStmt env (BlockStmt (stmt1:stmt2)) = do
-    evalStmt env stmt1
-    evalStmt env (BlockStmt stmt2)
+    case stmt1 of
+        BreakStmt _ -> return Break
+        _ -> do 
+            evalStmt env stmt1
+            evalStmt env (BlockStmt stmt2)
 --FOR--
 evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
      let
@@ -54,20 +57,24 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
             case condi of
                 (Just (a)) -> do 
                     Bool tf <- evalExpr env a
-                    if tf then do
-                        evalStmt env action
-                        case itera of 
-                            (Just (b)) -> evalExpr env b
-                            Nothing -> return Nil
-                        evalStmt env (ForStmt NoInit condi itera action)
-                    else 
-                        return Nil
+                    if tf then (do
+                        (r1,nenv) <- evalStmt env action
+                        if (r1/=Nil) then (
+                            case itera of 
+                                (Just (b)) -> evalExpr env b
+                                Nothing -> return Nil
+                            evalStmt env (ForStmt NoInit condi itera action)
+                            )
+                        else return Nil)
+                    else return Nil
                 Nothing -> do 
-                    evalStmt env action
-                    case itera of 
-                            (Just (b)) -> evalExpr env b
-                            Nothing -> return Nil
-                    evalStmt env (ForStmt NoInit condi itera action)
+                    (r1,nenv) <- evalStmt env action
+                    if (r1/=Nil) then                    
+                        case itera of 
+                                (Just (b)) -> evalExpr env b
+                                Nothing -> return Nil
+                        evalStmt env (ForStmt NoInit condi itera action)
+                    else return Nil
         (resp,ign) = g newS
         fEnv = intersection ign s
         in (resp,fEnv)
@@ -91,9 +98,8 @@ evalStmt env (IfSingleStmt expr block) = do
                     fEnv = intersection fSt s
                 in (resp, fEnv)
         (Error _)-> return Nil
-
-evalStmt env (BreakStmt _) = return Nil             --BREAK--
-
+--BREAK--
+evalStmt env (BreakStmt _) = return Break
 
 evalFor :: StateT -> ForInit -> StateTransformer Value
 evalFor env (VarInit a) = do

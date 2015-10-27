@@ -1,5 +1,5 @@
-var x = 1;
-if(x<5){ 
+var x = 0;
+for(var a = 0; a<10; a++){
 	x++;
-	var b = 0;
+	break;
 }
