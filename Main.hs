@@ -44,6 +44,7 @@ evalStmt env (BlockStmt []) = return Nil
 evalStmt env (BlockStmt (stmt1:stmt2)) = do
     evalStmt env stmt1
     evalStmt env (BlockStmt stmt2)
+--FOR--
 evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
      let
         (ST a) = evalStmt env EmptyStmt
@@ -70,14 +71,29 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
         (resp,ign) = g newS
         fEnv = intersection ign s
         in (resp,fEnv)
+--IFELSE--
 evalStmt env (IfStmt expr ifBlock elseBlock) = ST $ \s ->
     let (ST f) = evalExpr env expr
         (Bool b, newS) = f s
         (ST resF) = evalStmt env (if b then ifBlock else elseBlock)
         (resp,ign) = resF newS
         fEnv = intersection ign s
-    in (resp,fEnv)  
+    in (resp,fEnv)
+--IF--
+evalStmt env (IfSingleStmt expr block) = do
+    b <- evalExpr env expr
+    case b of
+        (Bool a)-> ST $ \s ->
+                let (ST f) = evalExpr env expr
+                    (Bool b, newS) = f s
+                    (ST resF) = evalStmt env (block)
+                    (resp, fSt) = resF newS
+                    fEnv = intersection fSt s
+                in (resp, fEnv)
+        (Error _)-> return Nil
+
 evalStmt env (BreakStmt _) = return Nil             --BREAK--
+
 
 evalFor :: StateT -> ForInit -> StateTransformer Value
 evalFor env (VarInit a) = do
