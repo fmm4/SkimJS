@@ -57,23 +57,24 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
             case condi of
                 (Just (a)) -> do 
                     Bool tf <- evalExpr env a
-                    if tf then (do
-                        (r1,nenv) <- evalStmt env action
-                        if (r1/=Nil) then (
-                            case itera of 
+                    if tf then do
+                        r1 <- evalStmt env action
+                        case r1 of 
+                            Break -> return Nil
+                            _ -> do
+                                case itera of 
                                 (Just (b)) -> evalExpr env b
                                 Nothing -> return Nil
-                            evalStmt env (ForStmt NoInit condi itera action)
-                            )
-                        else return Nil)
+                                evalStmt env (ForStmt NoInit condi itera action)
                     else return Nil
                 Nothing -> do 
-                    (r1,nenv) <- evalStmt env action
-                    if (r1/=Nil) then                    
-                        case itera of 
+                    r1 <- evalStmt env action
+                    case r1 of
+                        Break -> return Nil
+                        _ ->  case itera of 
                                 (Just (b)) -> evalExpr env b
                                 Nothing -> return Nil
-                        evalStmt env (ForStmt NoInit condi itera action)
+                                evalStmt env (ForStmt NoInit condi itera action)
                     else return Nil
         (resp,ign) = g newS
         fEnv = intersection ign s
