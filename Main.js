@@ -1,5 +1,6 @@
 var x = 0;
-for(var a = 0; a<10; a++){
-	x++;
+if(x < 10){
+	x = x + 1;
 	break;
+	x = x + 1;
 }

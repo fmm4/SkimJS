@@ -19,6 +19,7 @@ instance Show Value where
   show (Var name) = name
   show (Error str) = "Error: " ++ str
   show Nil = ""
+  show Break = ""
   
 -- This function could be replaced by (unwords.map show). The unwords
 -- function takes a list of String values and uses them to build a 

@@ -49,7 +49,7 @@ evalStmt env (BlockStmt (stmt1:stmt2)) = do
             evalStmt env (BlockStmt stmt2)
 --FOR--
 evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
-     let
+    let
         (ST a) = evalStmt env EmptyStmt
         (ignore, newS) = a s
         (ST g) = do
@@ -63,31 +63,35 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
                             Break -> return Nil
                             _ -> do
                                 case itera of 
-                                (Just (b)) -> evalExpr env b
-                                Nothing -> return Nil
+                                    (Just (b)) -> evalExpr env b
+                                    Nothing -> return Nil
                                 evalStmt env (ForStmt NoInit condi itera action)
                     else return Nil
                 Nothing -> do 
                     r1 <- evalStmt env action
                     case r1 of
                         Break -> return Nil
-                        _ ->  case itera of 
-                                (Just (b)) -> evalExpr env b
-                                Nothing -> return Nil
+                        _ -> do
+                                case itera of 
+                                    (Just (b)) -> evalExpr env b
+                                    Nothing -> return Nil
                                 evalStmt env (ForStmt NoInit condi itera action)
-                    else return Nil
         (resp,ign) = g newS
         fEnv = intersection ign s
-        in (resp,fEnv)
---IFELSE--
-evalStmt env (IfStmt expr ifBlock elseBlock) = ST $ \s ->
-    let (ST f) = evalExpr env expr
-        (Bool b, newS) = f s
-        (ST resF) = evalStmt env (if b then ifBlock else elseBlock)
-        (resp,ign) = resF newS
-        fEnv = intersection ign s
     in (resp,fEnv)
---IF--
+--IFELSE--
+evalStmt env (IfStmt expr ifBlock elseBlock) = do
+    b <- evalExpr env expr
+    case b of 
+        (Bool a) -> ST $ \s ->
+                let (ST f) = evalExpr env expr
+                    (Bool b, newS) = f s
+                    (ST resF) = evalStmt env (if b then ifBlock else elseBlock)
+                    (resp,ign) = resF newS
+                    fEnv = intersection ign s
+                in (resp,fEnv)
+        (Error _) -> return Nil
+--IF-- 
 evalStmt env (IfSingleStmt expr block) = do
     b <- evalExpr env expr
     case b of
