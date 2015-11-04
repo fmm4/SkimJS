@@ -1,6 +1,5 @@
-var x = 0;
-if(x < 10){
-	x = x + 1;
-	break;
-	x = x + 1;
-}
+var a = 8;
+var c = a;
+var b = 0;
+//r b = d;
+//var d = b;
