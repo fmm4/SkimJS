@@ -22,7 +22,7 @@ instance Show Value where
   show (Error str) = "Error: " ++ str
   show Nil = ""
   show Break = ""
-  show (FunVal _ _) = ""
+  show (FunVal b c) = show b ++ show c
 
 instance Eq Value where
   (Int a) == (Int b) = a == b

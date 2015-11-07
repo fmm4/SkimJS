@@ -1,5 +1,8 @@
-var a = 8;
-var c = a;
-var b = 0;
+function killmepls(p1){
+	c  = 0;
+	return p1*2;
+}
+dobro = killmepls(4);
+//autoGlobal = 1;
 //r b = d;
-//var d = b;
+//var d = b;*/

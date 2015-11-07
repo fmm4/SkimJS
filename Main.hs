@@ -19,22 +19,76 @@ evalExpr env (InfixExpr op expr1 expr2) = do
     v2 <- evalExpr env expr2
     infixOp env op v1 v2
 evalExpr env (AssignExpr OpAssign (LVar var) expr) = do
-    v <- stateLookup env (Map.size env) var
+    v <- stateLookup env (-1) var
     case v of
         -- Variable not defined :(
-        (Error _) -> return $ Error $ (show var) ++ " not defined"
+        (Error _) -> do
+            e <- evalExpr env expr
+            setGlobalVar var env e
         -- Variable defined, let's set its value
         _ -> do
             e <- evalExpr env expr
             setVar var env e
+evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
+    v <- stateLookup env (-1) var
+    case v of
+        -- Variable not defined :(
+        (Error _) -> do
+            e <- evalExpr env expr
+            setGlobalVar var env e
+        -- Variable defined, let's set its value
+        val -> do
+            expv <- evalExpr env expr
+            e <- evalAssignWithOp env assignWithOp val expv
+            setVar var env e
 evalExpr env (UnaryAssignExpr op (LVar var))= do
-    v <- stateLookup env (Map.size env) var
+    v <- stateLookup env (-1) var
     case v of
         (Error _) -> return Nil
         _ -> do
             e <- postfixOp env op v
             setVar var env e
+-- EXPRESSION CALLING --
+evalExpr env (CallExpr nome env1) = ST $ \senv ->
+    let 
+        callSize = length env1
+        (ST findFName) = evalExpr env nome
+        (VarRef (Id fName)) = nome
+        (storedFunc, ignEnv) = findFName senv
+        --(ST findFunction) = stateLookup env (-1) fName
+        --(storedFunc, ignoreEnv) = findFunction env
+        funSize = case storedFunc of
+                    (FunVal a1 b1) -> length a1
+                    _ -> -1
+        (ST retorno) = if (funSize == callSize) then 
+                ST $ \s -> 
+                let
+                    (ST a2) = newScope env
+                    (ignoreme, newEnv) = a2 s
+                    (ST storedFunc2) = stateLookup newEnv (-1) fName
+                    (FunVal env2 blockStmt, ignoreEnv2) = storedFunc2 newEnv
+                    (ST funST) = addParam newEnv env2 env1
+                    (resp, funEnv) = funST newEnv
+                    (ST final) = ST $ \o -> 
+                        let
+                            (ST execution) = evalStmt funEnv (BlockStmt blockStmt)
+                        in execution o
+                    (ignoreResp, finEnv) = final funEnv
+                    (ST afterFunc) = killScope env
+                    (useless, returnedEnv) = afterFunc finEnv
+                in (ignoreResp, returnedEnv)
+            else if (funSize == -1) then return $ Error $ (show fName) ++ " function has not been declared"
+                else return $ Error $ (show nome) ++ " incorrect number of parameters (Expected: " ++ (show funSize) ++ " - Received: " ++ (show callSize) ++ ")"
+    in retorno senv
 
+--AssignWithOperation
+evalAssignWithOp :: StateT -> AssignOp -> Value -> Value -> StateTransformer Value  
+evalAssignWithOp env OpAssignAdd (Int val) (Int expr) = return $ Int  $ val + expr
+evalAssignWithOp env OpAssignSub (Int val) (Int expr) = return $ Int  $ val - expr
+evalAssignWithOp env OpAssignMul (Int val) (Int expr) = return $ Int  $ val * expr
+evalAssignWithOp env OpAssignDiv (Int val) (Int expr) = return $ Int  $ div val expr
+
+--EvalStmt
 evalStmt :: StateT -> Statement -> StateTransformer Value
 evalStmt env EmptyStmt = return Nil
 evalStmt env (VarDeclStmt []) = return Nil
@@ -45,16 +99,17 @@ evalStmt env (BlockStmt []) = return Nil
 evalStmt env (BlockStmt (stmt1:stmt2)) = do
     case stmt1 of
         BreakStmt _ -> return Break
-        ExprStmt (AssignExpr OpAssign (LVar a) b) -> ST $ \s -> let 
-                (ST n) = evalStmt env (VarDeclStmt [VarDecl (Id a) (Just b)])
-                (resp,newF) = n env
-                (ST p) = evalStmt newF (BlockStmt stmt2)
-                (respF,staF) = p newF
-            in (respF, staF)
+        ReturnStmt a -> do
+            case a of
+                (Just expr) -> do
+                    v <- (evalExpr env expr)
+                    return v
+                (Nothing) -> return Nil
         _ -> do 
             evalStmt env stmt1
             evalStmt env (BlockStmt stmt2)
 --FOR--
+
 evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
     let
         (ST a) = evalStmt env EmptyStmt
@@ -84,8 +139,7 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
                                     Nothing -> return Nil
                                 evalStmt env (ForStmt NoInit condi itera action)
         (resp,ign) = g newS
-        fEnv = union s (intersection ign s)
-    in (resp,fEnv)
+    in (resp,ign)
 --IFELSE--
 evalStmt env (IfStmt expr ifBlock elseBlock) = do
     b <- evalExpr env expr
@@ -95,8 +149,7 @@ evalStmt env (IfStmt expr ifBlock elseBlock) = do
                     (Bool b, newS) = f s
                     (ST resF) = evalStmt env (if b then ifBlock else elseBlock)
                     (resp,ign) = resF newS
-                    fEnv = union s (intersection ign s)
-                in (resp,fEnv)
+                in (resp,ign)
         (Error _) -> return Nil
 --IF-- 
 evalStmt env (IfSingleStmt expr block) = do
@@ -107,28 +160,29 @@ evalStmt env (IfSingleStmt expr block) = do
                     (Bool b, newS) = f s
                     (ST resF) = evalStmt env (block)
                     (resp, fSt) = resF newS
-                    fEnv = union s (intersection fSt s)
-                in (resp, fEnv)
+                in (resp, fSt)
         (Error _)-> return Nil
 --BREAK--
 evalStmt env (BreakStmt _) = return Break
 --FUNCTION--
-evalStmt env (FunctionStmt (Id a) b c) =
-    setVar a env (FunVal b c)
---evalStmt env (CallExpr nome env1) =
---    let 
---        callSize = length env1
---        a = stateLookup env nome
---        funSize = case a of
---                    (FunVal a1 b1) -> length a1
---                    _ -> -1
---        retorno = if (funSize == callSize) then do
+evalStmt env (FunctionStmt (Id var) param block) = do
+    v <- stateLookup env (-1) var
+    case v of
+        (Error _) -> setVar var env (FunVal param block)
+        _ -> return $ Error $ (show var) ++ " has already been declared before"
+--evalStmt env (ReturnStmt a) = do
+    
 
---            else return Error _ 
---    in retorno
-
---addParam (a:as) (b:bs) = 
---    setVar a b
+addParam :: StateT -> [Id] -> [Expression] -> StateTransformer Value
+addParam env [] [] = return Nil
+addParam env ((Id a):as) (b:bs) = ST $ \s -> 
+    let
+        (ST expb) = evalExpr env b
+        (bVal, ignoreme) = expb s
+        (ST p) = setVar a env bVal
+        (resp, newEnv) = p s 
+        (ST w) = addParam newEnv as bs
+    in w newEnv
 
 evalFor :: StateT -> ForInit -> StateTransformer Value
 evalFor env (VarInit a) = do
@@ -136,6 +190,8 @@ evalFor env (VarInit a) = do
 evalFor env NoInit = return Nil
 evalFor env (ExprInit b) = evalExpr env b 
 
+getId :: Id -> String
+getId (Id a) = a
 
 -- Do not touch this one :)
 evaluate :: StateT -> [Statement] -> StateTransformer Value
@@ -213,35 +269,57 @@ setVar var env val = ST $ \s -> let
         newScp = Map.lookup currStack (union s env)
         (ST retorno) = case newScp of
                 (Just currScope) -> ST $ \s1 -> let
+                        (ST ign) = evalStmt env EmptyStmt 
+                        (ret, ignore) = ign s1
                         modificat = insert var val currScope
-                        newEnv = insert currStack modificat env
-                    in (stackPos, newEnv)
+                        newEnv = insert currStack modificat (union s1 env)
+                    in (ret, newEnv)
                 (Nothing) -> ST $ \s2 -> let 
                         (ST a) = newScope s2
                         (ignore, newEnv) = a s2
                         (Just newStack) = Map.lookup 1 (union s2 newEnv)
                         modificat = insert var val newStack                        
                         finEnv = insert 1 modificat newEnv
-                    in (Int (1), finEnv)
-    in retorno s  
+                    in (ignore, finEnv)
+    in retorno (union s env)  
 
 setGlobalVar :: String -> StateT -> Value -> StateTransformer Value
 setGlobalVar var env val = ST $ \s -> let
-        stackPos = Int (1)
-        (Just currScope) = Map.lookup 1 (union s env)
-        modificat = insert var val currScope
-        newEnv = insert 1 modificat env
-    in (stackPos, newEnv)    
+        currStack = 1
+        stackPos = Int (currStack)
+        newScp = Map.lookup currStack (union s env)
+        (ST retorno) = case newScp of
+                (Just currScope) -> ST $ \s1 -> 
+                    let
+                        (ST ign) = evalStmt env EmptyStmt 
+                        (ret, ignore) = ign s1
+                        modificat = insert var val currScope
+                        newEnv = insert 1 modificat (union s env)
+                    in (ret, newEnv)
+                (Nothing) -> ST $ \s2 -> let 
+                        (ST a) = newScope s2
+                        (ignore, newEnv) = a s2
+                        (Just newStack) = Map.lookup 1 (union s newEnv)
+                        modificat = insert var val newStack                        
+                        finEnv = insert 1 modificat newEnv
+                    in (ignore, finEnv)
+    in retorno (union s env)     
 
 newScope :: StateT -> StateTransformer Value
-newScope env = ST $ \s -> let
-        newStack = Int ((Map.size env) + 1)
-        newScope = insert ((Map.size env) + 1) empty env
-    in (newStack, newScope)
+newScope env = ST $ \s -> 
+    let
+        (ST ign) = evalStmt env EmptyStmt 
+        (ret, ignore) = ign s
+        newScope = insert ((Map.size (union s env)) + 1) empty (union s env)
+    in (ret, newScope)
 
 killScope :: StateT -> StateTransformer Value
-killScope env = ST $ \s -> (Int ((Map.size env) - 1), delete (Map.size env) env)
-
+killScope env = ST $ \s -> 
+    let 
+        (ST ign) = evalStmt env EmptyStmt 
+        (ret, ignore) = ign s
+        newScope = delete (Map.size (union s env)) (union s env)
+    in (ret, newScope)
 
 
 --
