@@ -1,8 +1,6 @@
-function killmepls(p1){
-	c  = 0;
-	return p1*2;
-}
-dobro = killmepls(4);
-//autoGlobal = 1;
-//r b = d;
-//var d = b;*/
+var a = [1,2,3];
+var b = [4,5,6];
+var c = concat(a,b);
+var hA = head(a);
+var tA = tail(a);
+var lgnth = len(c);

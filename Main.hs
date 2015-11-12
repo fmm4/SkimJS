@@ -14,6 +14,7 @@ import Value
 evalExpr :: StateT -> Expression -> StateTransformer Value
 evalExpr env (VarRef (Id id)) = stateLookup env (-1) id
 evalExpr env (IntLit int) = return $ Int int
+evalExpr env (ArrayLit a) = return $ (List (fillList env a))
 evalExpr env (InfixExpr op expr1 expr2) = do
     v1 <- evalExpr env expr1
     v2 <- evalExpr env expr2
@@ -49,6 +50,58 @@ evalExpr env (UnaryAssignExpr op (LVar var))= do
             e <- postfixOp env op v
             setVar var env e
 -- EXPRESSION CALLING --
+evalExpr env (CallExpr (VarRef (Id "head")) env1) = ST $ \senv ->
+     let 
+        callSize = length env1
+        (ST retorno) = if (1 == callSize) then 
+                ST $ \s -> 
+                let
+                    (ST p) = evalExpr env (head env1) 
+                    ((List lista), envf) = p s
+                in (head lista, s)
+            else if (callSize /= 1) then return $ Error $ "head function has not been declared"
+                else return $ Error $ "head incorrect number of parameters" 
+    in retorno senv
+evalExpr env (CallExpr (VarRef (Id "tail")) env1) =ST $ \senv ->
+     let 
+        callSize = length env1
+        (ST retorno) = if (1 == callSize) then 
+                ST $ \s -> 
+                let
+                    (ST p) = evalExpr env (head env1) 
+                    ((List lista), envf) = p s
+                in (List (tail lista), s)
+            else if (callSize /= 1) then return $ Error $ "tail function has not been declared"
+                else return $ Error $ "tail incorrect number of parameters" 
+    in retorno senv
+evalExpr env (CallExpr (VarRef (Id "concat")) env1) = ST $ \senv ->
+     let 
+        callSize = length env1
+        (ST retorno) = if (2 == callSize) then 
+                ST $ \s -> 
+                let
+                    (ST p) = evalExpr env (head env1) 
+                    (ST k) = evalExpr env (head (tail env1)) 
+                    ((List lista1), envf) = p s
+                    ((List lista2), envd) = k s
+                    wew = concat [lista1,lista2]
+                    novaLista = List (wew)
+                in (novaLista, s)
+            else if (callSize /= 2) then return $ Error $ "concat function has not been declared"
+                else return $ Error $ "concat incorrect number of parameters" 
+    in retorno senv 
+evalExpr env (CallExpr (VarRef (Id "len")) env1) = ST $ \senv -> 
+    let
+        (ST a2) = newScope env
+        (ignoreme,fEnv) = a2 senv 
+        (ST func) = evalStmt env (BlockStmt [VarDeclStmt [VarDecl (Id "modifiable") (Just (head env1))],VarDeclStmt [VarDecl (Id "result") (Just (IntLit 0))],VarDeclStmt [VarDecl (Id "breaker") (Just (IntLit 0))],ForStmt NoInit (Just (InfixExpr OpEq (VarRef (Id "breaker")) (IntLit 0))) Nothing (BlockStmt [IfStmt (InfixExpr OpNEq (VarRef (Id "modifiable")) (ArrayLit [])) (BlockStmt [ExprStmt (AssignExpr OpAssign (LVar "modifiable") (CallExpr (VarRef (Id "tail")) [VarRef (Id "modifiable")])),ExprStmt (UnaryAssignExpr PostfixInc (LVar "result"))]) (BlockStmt [ExprStmt (AssignExpr OpAssign (LVar "breaker") (IntLit 1))])]),ReturnStmt (Just (VarRef (Id "result")))])
+        (ignoreme2,fEnv2) = func fEnv
+        (ST kill) = killScope env
+        (dontcare, fEnv3) = kill fEnv2
+        result = case ignoreme2 of
+            (Return a) -> a
+            _ -> ignoreme2
+    in (result, fEnv3)
 evalExpr env (CallExpr nome env1) = ST $ \senv ->
     let 
         callSize = length env1
@@ -67,19 +120,23 @@ evalExpr env (CallExpr nome env1) = ST $ \senv ->
                     (ignoreme, newEnv) = a2 s
                     (ST storedFunc2) = stateLookup newEnv (-1) fName
                     (FunVal env2 blockStmt, ignoreEnv2) = storedFunc2 newEnv
-                    (ST funST) = addParam newEnv env2 env1
+                    (ST funST) = addParam env env2 env1
                     (resp, funEnv) = funST newEnv
                     (ST final) = ST $ \o -> 
                         let
-                            (ST execution) = evalStmt funEnv (BlockStmt blockStmt)
+                            (ST execution) = evalStmt env (BlockStmt blockStmt)
                         in execution o
                     (ignoreResp, finEnv) = final funEnv
+                    resposta = case ignoreResp of
+                        (Return extract) -> extract
+                        _ -> ignoreResp
                     (ST afterFunc) = killScope env
                     (useless, returnedEnv) = afterFunc finEnv
-                in (ignoreResp, returnedEnv)
+                in (resposta, returnedEnv)
             else if (funSize == -1) then return $ Error $ (show fName) ++ " function has not been declared"
                 else return $ Error $ (show nome) ++ " incorrect number of parameters (Expected: " ++ (show funSize) ++ " - Received: " ++ (show callSize) ++ ")"
     in retorno senv
+
 
 --AssignWithOperation
 evalAssignWithOp :: StateT -> AssignOp -> Value -> Value -> StateTransformer Value  
@@ -101,13 +158,21 @@ evalStmt env (BlockStmt (stmt1:stmt2)) = do
         BreakStmt _ -> return Break
         ReturnStmt a -> do
             case a of
-                (Just expr) -> do
-                    v <- (evalExpr env expr)
-                    return v
+                (Just expr) ->
+                    ST $ \s -> 
+                        let
+                            respos = let 
+                                        (ST f) = evalExpr env expr
+                                        (resp,ign) = f s
+                                        resposta = (Return resp)
+                                     in resposta
+                        in (respos,s)
                 (Nothing) -> return Nil
         _ -> do 
-            evalStmt env stmt1
-            evalStmt env (BlockStmt stmt2)
+            e <- evalStmt env stmt1
+            case e of
+                (Return v) -> return v
+                _ -> evalStmt env (BlockStmt stmt2)
 --FOR--
 
 evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
@@ -144,23 +209,22 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
 evalStmt env (IfStmt expr ifBlock elseBlock) = do
     b <- evalExpr env expr
     case b of 
-        (Bool a) -> ST $ \s ->
-                let (ST f) = evalExpr env expr
-                    (Bool b, newS) = f s
-                    (ST resF) = evalStmt env (if b then ifBlock else elseBlock)
-                    (resp,ign) = resF newS
-                in (resp,ign)
+        (Bool a) -> do
+            c <- evalStmt env (if a then ifBlock else elseBlock)
+            return c
         (Error _) -> return Nil
 --IF-- 
 evalStmt env (IfSingleStmt expr block) = do
     b <- evalExpr env expr
     case b of
-        (Bool a)-> ST $ \s ->
+        (Bool a)-> do
+            we <- ST $ \s ->
                 let (ST f) = evalExpr env expr
                     (Bool b, newS) = f s
                     (ST resF) = evalStmt env (block)
                     (resp, fSt) = resF newS
-                in (resp, fSt)
+                in resF newS
+            return we
         (Error _)-> return Nil
 --BREAK--
 evalStmt env (BreakStmt _) = return Break
@@ -170,8 +234,8 @@ evalStmt env (FunctionStmt (Id var) param block) = do
     case v of
         (Error _) -> setVar var env (FunVal param block)
         _ -> return $ Error $ (show var) ++ " has already been declared before"
---evalStmt env (ReturnStmt a) = do
-    
+--LIST--
+
 
 addParam :: StateT -> [Id] -> [Expression] -> StateTransformer Value
 addParam env [] [] = return Nil
@@ -220,6 +284,9 @@ infixOp env OpEq   (Int  v1) (Int  v2) = return $ Bool $ v1 == v2
 infixOp env OpNEq  (Bool v1) (Bool v2) = return $ Bool $ v1 /= v2
 infixOp env OpLAnd (Bool v1) (Bool v2) = return $ Bool $ v1 && v2
 infixOp env OpLOr  (Bool v1) (Bool v2) = return $ Bool $ v1 || v2
+infixOp env OpEq   (List v1) (List v2)  = return $ Bool $ v1 == v2
+infixOp env OpNEq  (List v1) (List v2)  = return $ Bool $ v1 /= v2
+
 
 infixOp env op (Var x) v2 = do
     var <- stateLookup env (Map.size env) x
@@ -259,8 +326,25 @@ varDecl env (VarDecl (Id id) maybeExpr) = do
     case maybeExpr of
         Nothing -> setVar id env Nil
         (Just expr) -> do
-            val <- evalExpr env expr
-            setVar id env val
+            case expr of
+                _ -> do
+                    val <- evalExpr env expr
+                    setVar id env val
+
+
+fillList :: StateT -> [Expression] -> [Value]
+fillList env [] = []
+fillList env (a:[]) = 
+        let
+            (ST f) = (evalExpr env a)
+            (resp,env) = f env
+        in (resp:[])
+fillList env (a:b) =
+        let
+            (ST f) = (evalExpr env a)
+            (resp,env) = f env
+        in (resp:(fillList env b))
+
 --MAGIC DO NOT TOUCH
 setVar :: String -> StateT -> Value -> StateTransformer Value
 setVar var env val = ST $ \s -> let
