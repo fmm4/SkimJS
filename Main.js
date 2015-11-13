@@ -1,6 +1,23 @@
-var a = [1,2,3];
-var b = [4,5,6];
-var c = concat(a,b);
-var hA = head(a);
-var tA = tail(a);
-var lgnth = len(c);
+
+var a = 0;
+var b = 0;
+k = 0;
+function alphys(){
+	var c = 0;
+	d = 0;
+	var e = 0;
+	var f = 0;
+}
+
+//alphys();
+
+// function a(p1){
+// 	b= 0;
+// 	for(b = 0; b<10; b++){
+// 		b = b - 5;
+// 		return b;
+// 	}
+
+// }
+
+// a(1);

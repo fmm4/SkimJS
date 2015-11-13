@@ -15,21 +15,39 @@ evalExpr :: StateT -> Expression -> StateTransformer Value
 evalExpr env (VarRef (Id id)) = stateLookup env (-1) id
 evalExpr env (IntLit int) = return $ Int int
 evalExpr env (ArrayLit a) = return $ (List (fillList env a))
+evalExpr env (BracketRef a b) = ST $ \fEnv-> 
+    let
+        (ST posit) = evalExpr env b
+        ((Int pos), ev2) = posit fEnv
+        (ST array) = evalExpr env a
+        (vl, ev) = array fEnv
+        value = case vl of 
+            (List a) -> ((!!) a pos)
+            _ -> Error $ "non-existant array"
+    in (value,fEnv)
 evalExpr env (InfixExpr op expr1 expr2) = do
     v1 <- evalExpr env expr1
     v2 <- evalExpr env expr2
     infixOp env op v1 v2
 evalExpr env (AssignExpr OpAssign (LVar var) expr) = do
     v <- stateLookup env (-1) var
-    case v of
-        -- Variable not defined :(
+    case v of   
         (Error _) -> do
             e <- evalExpr env expr
             setGlobalVar var env e
-        -- Variable defined, let's set its value
         _ -> do
             e <- evalExpr env expr
-            setVar var env e
+            setVar var env e (-1)
+--evalExpr env (AssignExpr OpAssign (LBracket var pos) expr) = do
+--    v <- stateLookup env (-1) var
+--    case v of
+--        -- Variable not defined :(
+--        (Error _) -> Error $ "Trying to assign value to a nonexistant array or out of the bounds of an array."
+--        -- Variable defined, let's set its value
+--        (Just a) -> do
+--            e <- evalExpr env expr
+--            newval <- (replaceInList a 0 pos e)
+--            setVar var env newval
 evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
     v <- stateLookup env (-1) var
     case v of
@@ -41,14 +59,14 @@ evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
         val -> do
             expv <- evalExpr env expr
             e <- evalAssignWithOp env assignWithOp val expv
-            setVar var env e
+            setVar var env e (-1)
 evalExpr env (UnaryAssignExpr op (LVar var))= do
     v <- stateLookup env (-1) var
     case v of
         (Error _) -> return Nil
         _ -> do
             e <- postfixOp env op v
-            setVar var env e
+            setVar var env e (-1)
 -- EXPRESSION CALLING --
 evalExpr env (CallExpr (VarRef (Id "head")) env1) = ST $ \senv ->
      let 
@@ -174,7 +192,6 @@ evalStmt env (BlockStmt (stmt1:stmt2)) = do
                 (Return v) -> return v
                 _ -> evalStmt env (BlockStmt stmt2)
 --FOR--
-
 evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
     let
         (ST a) = evalStmt env EmptyStmt
@@ -188,6 +205,7 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
                         r1 <- evalStmt env action
                         case r1 of 
                             Break -> return Nil
+                            (Return a) -> return (Return a)
                             _ -> do
                                 case itera of 
                                     (Just (b)) -> evalExpr env b
@@ -198,6 +216,7 @@ evalStmt env (ForStmt initi condi itera action) = ST $ \s ->
                     r1 <- evalStmt env action
                     case r1 of
                         Break -> return Nil
+                        (Return a) -> return (Return a)
                         _ -> do
                                 case itera of 
                                     (Just (b)) -> evalExpr env b
@@ -232,10 +251,15 @@ evalStmt env (BreakStmt _) = return Break
 evalStmt env (FunctionStmt (Id var) param block) = do
     v <- stateLookup env (-1) var
     case v of
-        (Error _) -> setVar var env (FunVal param block)
+        (Error _) -> setLocalVar var env (FunVal param block)
         _ -> return $ Error $ (show var) ++ " has already been declared before"
 --LIST--
 
+
+
+
+--replaceInList :: [Value] -> Int -> Int -> Value -> [Value]
+--replaceInList (a:b) strt pos new = if strt == pos then return new:b else return a:(replaceInList (strt+1) pos new)
 
 addParam :: StateT -> [Id] -> [Expression] -> StateTransformer Value
 addParam env [] [] = return Nil
@@ -243,7 +267,7 @@ addParam env ((Id a):as) (b:bs) = ST $ \s ->
     let
         (ST expb) = evalExpr env b
         (bVal, ignoreme) = expb s
-        (ST p) = setVar a env bVal
+        (ST p) = setVar a env bVal (-1)
         (resp, newEnv) = p s 
         (ST w) = addParam newEnv as bs
     in w newEnv
@@ -269,6 +293,7 @@ evaluate env (s:ss) = evalStmt env s >> evaluate env ss
 
 postfixOp :: StateT -> UnaryAssignOp -> Value -> StateTransformer Value
 postfixOp env PostfixInc (Int v1) = return $ Int $ v1 + 1
+postfixOp env PostfixDec (Int v1) = return $ Int $ v1 - 1
 
 infixOp :: StateT -> InfixOp -> Value -> Value -> StateTransformer Value
 infixOp env OpAdd  (Int  v1) (Int  v2) = return $ Int  $ v1 + v2
@@ -324,13 +349,24 @@ stateLookup env stck var = ST $ \s -> let
 varDecl :: StateT -> VarDecl -> StateTransformer Value
 varDecl env (VarDecl (Id id) maybeExpr) = do
     case maybeExpr of
-        Nothing -> setVar id env Nil
+        Nothing -> do
+                    exists <- stateLookup env (-1) id
+                    case exists of
+                        (Error _) -> do
+                            setLocalVar id env Nil
+                        _ -> do
+                            setVar id env Nil (-1)
         (Just expr) -> do
             case expr of
                 _ -> do
-                    val <- evalExpr env expr
-                    setVar id env val
-
+                    exists <- stateLookup env (-1) id
+                    case exists of
+                        (Error _) -> do
+                            val <- evalExpr env expr
+                            setLocalVar id env val
+                        _ -> do
+                            val <- evalExpr env expr
+                            setVar id env val (-1)
 
 fillList :: StateT -> [Expression] -> [Value]
 fillList env [] = []
@@ -346,8 +382,38 @@ fillList env (a:b) =
         in (resp:(fillList env b))
 
 --MAGIC DO NOT TOUCH
-setVar :: String -> StateT -> Value -> StateTransformer Value
-setVar var env val = ST $ \s -> let
+setVar :: String -> StateT -> Value -> Int -> StateTransformer Value
+setVar var env val (-1) =  ST $ \s -> let 
+        (ST a) = setVar var (union s env) val (Map.size s)
+        in a s
+--setVar var env val 0 = ST $ \s -> (Error $ "Erro", (union s env))
+setVar var env val stck = ST $ \s -> let
+        newScp = Map.lookup stck (union s env)
+        (ST retorno) = 
+            case newScp of
+                (Just currScope) -> ST $ \s1 -> 
+                    let
+                        (ST isThis) = case (Map.lookup var currScope) of
+                            Nothing -> setVar var (union s1 env) val (stck-1)
+                            (Just a) -> ST $ \f -> 
+                                let
+                                    (ST ign) = evalStmt env EmptyStmt 
+                                    (ret, ignore) = ign f
+                                    modificat = insert var val currScope
+                                    newEnv = insert stck modificat (union f env)
+                                in (ret, newEnv)
+                    in isThis s1
+                (Nothing) -> ST $ \s2 -> let 
+                        (ST a) = newScope s2
+                        (ignore, newEnv) = a s2
+                        (Just newStack) = Map.lookup 1 (union s2 newEnv)
+                        modificat = insert var val newStack                        
+                        finEnv = insert 1 modificat newEnv
+                    in (ignore, finEnv)
+    in retorno (union s env)
+
+setLocalVar :: String -> StateT -> Value -> StateTransformer Value
+setLocalVar var env val = ST $ \s -> let
         currStack = Map.size (union s env)
         stackPos = Int (currStack)
         newScp = Map.lookup currStack (union s env)
@@ -365,7 +431,7 @@ setVar var env val = ST $ \s -> let
                         modificat = insert var val newStack                        
                         finEnv = insert 1 modificat newEnv
                     in (ignore, finEnv)
-    in retorno (union s env)  
+    in retorno (union s env)    
 
 setGlobalVar :: String -> StateT -> Value -> StateTransformer Value
 setGlobalVar var env val = ST $ \s -> let
@@ -378,7 +444,7 @@ setGlobalVar var env val = ST $ \s -> let
                         (ST ign) = evalStmt env EmptyStmt 
                         (ret, ignore) = ign s1
                         modificat = insert var val currScope
-                        newEnv = insert 1 modificat (union s env)
+                        newEnv = insert 1 modificat s
                     in (ret, newEnv)
                 (Nothing) -> ST $ \s2 -> let 
                         (ST a) = newScope s2
@@ -387,7 +453,7 @@ setGlobalVar var env val = ST $ \s -> let
                         modificat = insert var val newStack                        
                         finEnv = insert 1 modificat newEnv
                     in (ignore, finEnv)
-    in retorno (union s env)     
+    in retorno s     
 
 newScope :: StateT -> StateTransformer Value
 newScope env = ST $ \s -> 
