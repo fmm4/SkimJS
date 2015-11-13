@@ -11,6 +11,7 @@ data Value = Bool Bool
     | FunVal [Id] [Statement]
     | Return Value
     | List [Value]
+    | Pointer String
 --
 -- Pretty Printer
 --

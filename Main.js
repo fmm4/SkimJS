@@ -1,23 +1,38 @@
+function qs(vet, esq, dir){
+    var ce = esq;
+    var cd = dir;
+    var meio = (ce + cd)/ 2;
+    for(;ce < cd;){
+        for(;vet[ce] < vet[meio];){
+            ce++;
+        }
+       	for(;vet[cd] > vet[meio];){
+            cd--;
+        }
+        if(ce <= cd){
+            var temp = vet[ce];
+            vet[ce] = vet[cd];
+            vet[cd] = temp;
+            ce++;
+            cd--;
+        }
+    }
+    // if(cd > esq)
+    //     qs(vet, esq, cd);
 
-var a = 0;
-var b = 0;
-k = 0;
-function alphys(){
-	var c = 0;
-	d = 0;
-	var e = 0;
-	var f = 0;
+    // if(ce < dir)
+    //     qs(vet, ce, dir);
 }
 
-//alphys();
+var lista = [3,4,1,2,3,5,6,9,12]
+var start = 0;
+var end = len(lista)-1;
+qs(lista,start,end);
+// var cuck = 1;
 
-// function a(p1){
-// 	b= 0;
-// 	for(b = 0; b<10; b++){
-// 		b = b - 5;
-// 		return b;
-// 	}
-
+// function mem(a1){
+// 	a1++;
 // }
 
-// a(1);
+// mem(cuck);
+

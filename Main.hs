@@ -38,16 +38,21 @@ evalExpr env (AssignExpr OpAssign (LVar var) expr) = do
         _ -> do
             e <- evalExpr env expr
             setVar var env e (-1)
---evalExpr env (AssignExpr OpAssign (LBracket var pos) expr) = do
---    v <- stateLookup env (-1) var
---    case v of
---        -- Variable not defined :(
---        (Error _) -> Error $ "Trying to assign value to a nonexistant array or out of the bounds of an array."
---        -- Variable defined, let's set its value
---        (Just a) -> do
---            e <- evalExpr env expr
---            newval <- (replaceInList a 0 pos e)
---            setVar var env newval
+evalExpr env (AssignExpr OpAssign (LBracket (VarRef (Id var)) pos) expr) = do
+    v <- stateLookup env (-1) var
+    case v of
+        -- Variable not defined :(
+        (Error _) -> return $ Error $ "Trying to assign value to a nonexistant array or out of the bounds of an array."
+        -- Variable defined, let's set its value
+        (List v) -> do
+            e <- evalExpr env expr
+            newval <- ST $ \s -> 
+                    let
+                        (ST p) = evalExpr env pos
+                        ((Int r),ig) = p s
+                        ret = List $ (replaceInList v 0 r e)
+                    in (ret, s)
+            setVar var env newval (-1)
 evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
     v <- stateLookup env (-1) var
     case v of
@@ -258,16 +263,25 @@ evalStmt env (FunctionStmt (Id var) param block) = do
 
 
 
---replaceInList :: [Value] -> Int -> Int -> Value -> [Value]
---replaceInList (a:b) strt pos new = if strt == pos then return new:b else return a:(replaceInList (strt+1) pos new)
+replaceInList :: [Value] -> Int -> Int -> Value -> [Value]
+replaceInList (a:b) strt pos new = if strt == pos then new:b else
+    let
+        n = replaceInList b (strt+1) pos new
+    in a:n
 
 addParam :: StateT -> [Id] -> [Expression] -> StateTransformer Value
 addParam env [] [] = return Nil
+addParam env ((Id a):as) ((VarRef (Id b)):bs) = ST $ \s -> 
+    let
+        (ST p) = setLocalVar a env (Pointer b)
+        (resp, newEnv) = p s 
+        (ST w) = addParam newEnv as bs
+    in w newEnv
 addParam env ((Id a):as) (b:bs) = ST $ \s -> 
     let
         (ST expb) = evalExpr env b
         (bVal, ignoreme) = expb s
-        (ST p) = setVar a env bVal (-1)
+        (ST p) = setLocalVar a env bVal
         (resp, newEnv) = p s 
         (ST w) = addParam newEnv as bs
     in w newEnv
@@ -341,9 +355,15 @@ stateLookup env stck var = ST $ \s -> let
     (Just currStack) = (Map.lookup stck (union s env))
     (ST retorno) = case (Map.lookup var currStack) of
         Nothing -> stateLookup env (stck-1) var
-        (Just a) -> ST $ \f -> let
-                (Just frst) = (Map.lookup var currStack)
-            in (frst, f)
+        (Just a) -> case a of
+                    (Pointer c)-> 
+                        ST $ \f -> let
+                            (ST k) = stateLookup env (-1) c
+                            (value,ignorable) = k f
+                        in (value,f)
+                    _ -> ST $ \f -> let
+                            (Just frst) = (Map.lookup var currStack)
+                        in (frst, f)
     in retorno s
 
 varDecl :: StateT -> VarDecl -> StateTransformer Value
@@ -357,7 +377,18 @@ varDecl env (VarDecl (Id id) maybeExpr) = do
                         _ -> do
                             setVar id env Nil (-1)
         (Just expr) -> do
-            case expr of
+            eval <- evalExpr env expr
+            case eval of
+                (Pointer a) -> do
+                    exists <- stateLookup env (-1) id
+                    case exists of
+                        (Error _) -> ST $ \p ->
+                            let
+                                (ST val) = evalExpr env (VarRef (Id a))
+                                (value,ignoreable) = val p
+                                (ST ohgod) = setLocalVar id env value
+                            in ohgod p
+                        _ -> return $ Error $ "Huh... How do you GET here?"
                 _ -> do
                     exists <- stateLookup env (-1) id
                     case exists of
@@ -395,13 +426,18 @@ setVar var env val stck = ST $ \s -> let
                     let
                         (ST isThis) = case (Map.lookup var currScope) of
                             Nothing -> setVar var (union s1 env) val (stck-1)
-                            (Just a) -> ST $ \f -> 
-                                let
-                                    (ST ign) = evalStmt env EmptyStmt 
-                                    (ret, ignore) = ign f
-                                    modificat = insert var val currScope
-                                    newEnv = insert stck modificat (union f env)
-                                in (ret, newEnv)
+                            (Just a) -> case a of 
+                                        (Pointer b) -> ST $ \f->
+                                            let
+                                                (ST o) = setVar b env val stck
+                                            in o f                                        
+                                        _ -> ST $ \f -> 
+                                            let
+                                                (ST ign) = evalStmt env EmptyStmt 
+                                                (ret, ignore) = ign f
+                                                modificat = insert var val currScope
+                                                newEnv = insert stck modificat (union f env)
+                                            in (ret, newEnv)
                     in isThis s1
                 (Nothing) -> ST $ \s2 -> let 
                         (ST a) = newScope s2
