@@ -1,18 +1,18 @@
 // teste 1
 // variaveis globais, automaticamente globais e locais
-// var a=0, b=1;
-// c=3;
+var a=0, b=1;
+c=3;
 
-// function testaGlobal(){
-// 	a++;
-// 	d = a;
-// 	e=0;
-// }
+function testaGlobal(){
+	a++;
+	d = a;
+	e=0;
+}
 
-// testaGlobal();
+testaGlobal();
 
-// teste 2
-// testa if e else
+// // teste 2
+// // testa if e else
 // function testaPositivo(num){
 // 	if (num > 0){
 // 		return 1;
@@ -48,9 +48,9 @@
 // 	return fat(num-1) * num;
 // }
 
-//var fatorial = fat(5);
+// var fatorial = fat(5);
 
-// function fibonacci(num){
+// var fibonacci(num){
 // 	if(num==1 || num==2) {
 //        return 1;
 // 	} else {
@@ -66,9 +66,8 @@
 // function paraRetornarAlgo(num){
 // 	if(num < 20) {
 // 		return num;
-// 	}	
-
-// 	inalcancavel = 9999;
+// 	}
+		
 // 	for (var i=0; i<num; i++){
 // 		if(num == i+1) {
 // 			break;
@@ -85,7 +84,7 @@
 // // teste 6
 // // testando listas
 
-var lista = [3,4,1,2,3,5,6,9,12]
+// var lista = [3,4,1,2,3,5,6,9,12]
 
 // var comprimento = len(lista);
 
@@ -98,7 +97,6 @@ var lista = [3,4,1,2,3,5,6,9,12]
 // // teste 7
 
 // function mistura(posicao){
-// 	b= 0;
 // 	var comprimento = len(lista);
 	
 // 	if (posicao >= comprimento){
@@ -111,7 +109,7 @@ var lista = [3,4,1,2,3,5,6,9,12]
 // 	// nao sei se esse comportamento eh realmente executado
 // 	var listaResult = concat([8,5,7,6,7,12,0], lista);
 	
-// 	for (var a = 0; a<comprimento; a++){
+// 	for (; a<comprimento; a++){
 // 		automaGlobal = listaResult[a];
 // 	}
 	
@@ -121,8 +119,6 @@ var lista = [3,4,1,2,3,5,6,9,12]
 	
 // 	return valResult;
 // }
-
-// f = mistura(4);
 
 // // teste 8
 

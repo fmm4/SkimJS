@@ -14,8 +14,6 @@ import Value
 evalExpr :: StateT -> Expression -> StateTransformer Value
 evalExpr env (VarRef (Id id)) = stateLookup env (-1) id
 evalExpr env (IntLit int) = return $ Int int
-evalExpr env (StringLit a) = return $ String a
-evalExpr env (BoolLit a) = return $ Bool a
 evalExpr env (ArrayLit a) = return $ (List (fillList env a))
 evalExpr env (BracketRef a b) = ST $ \fEnv-> 
     let
@@ -23,10 +21,9 @@ evalExpr env (BracketRef a b) = ST $ \fEnv->
         ((Int pos), ev2) = posit fEnv
         (ST array) = evalExpr env a
         (vl, ev) = array fEnv
-        (VarRef (Id f)) = a
         value = case vl of 
-            (List a) -> if (pos <= ((length a)-1) && pos >= 0) then ((!!) a pos) else Error $ "Trying to access a value out of the list bounds"
-            _ -> Error $ (++) f " is not a list."
+            (List a) -> ((!!) a pos)
+            _ -> Error $ "non-existant array"
     in (value,fEnv)
 evalExpr env (InfixExpr op expr1 expr2) = do
     v1 <- evalExpr env expr1
@@ -71,7 +68,7 @@ evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
 evalExpr env (UnaryAssignExpr op (LVar var))= do
     v <- stateLookup env (-1) var
     case v of
-        (Error _) -> return $ Error $ "Cannot assign/Declare global with unary assignments if variable has not been declared."
+        (Error _) -> return Nil
         _ -> do
             e <- postfixOp env op v
             setVar var env e (-1)
@@ -197,7 +194,6 @@ evalStmt env (BlockStmt (stmt1:stmt2)) = do
         _ -> do 
             e <- evalStmt env stmt1
             case e of
-                (Break) -> return Break
                 (Return v) -> return v
                 _ -> evalStmt env (BlockStmt stmt2)
 --FOR--
@@ -238,27 +234,22 @@ evalStmt env (IfStmt expr ifBlock elseBlock) = do
     b <- evalExpr env expr
     case b of 
         (Bool a) -> do
-            c <- ST $ \s -> let
-                    (ST p) = evalStmt env (if a then ifBlock else elseBlock)
-                in p s
+            c <- evalStmt env (if a then ifBlock else elseBlock)
             return c
-        (Error _) -> return (Error "If-condition cannot be recognized")
+        (Error _) -> return Nil
 --IF-- 
 evalStmt env (IfSingleStmt expr block) = do
     b <- evalExpr env expr
     case b of
         (Bool a)-> do
-            if a then do
-                we <- ST $ \s ->
-                    let (ST f) = evalExpr env expr
-                        (Bool b, newS) = f s
-                        (ST resF) = evalStmt env (block)
-                        (resp, fSt) = resF newS
-                    in resF newS
-                return we
-            else
-                return Nil
-        (Error _)-> return (Error "If-condition cannot be recognized")
+            we <- ST $ \s ->
+                let (ST f) = evalExpr env expr
+                    (Bool b, newS) = f s
+                    (ST resF) = evalStmt env (block)
+                    (resp, fSt) = resF newS
+                in resF newS
+            return we
+        (Error _)-> return Nil
 --BREAK--
 evalStmt env (BreakStmt _) = return Break
 --FUNCTION--
@@ -273,7 +264,6 @@ evalStmt env (FunctionStmt (Id var) param block) = do
 
 
 replaceInList :: [Value] -> Int -> Int -> Value -> [Value]
-replaceInList [] strt pos new = [new]
 replaceInList (a:b) strt pos new = if strt == pos then new:b else
     let
         n = replaceInList b (strt+1) pos new
@@ -329,10 +319,6 @@ infixOp env OpLAnd (Bool v1) (Bool v2) = return $ Bool $ v1 && v2
 infixOp env OpLOr  (Bool v1) (Bool v2) = return $ Bool $ v1 || v2
 infixOp env OpEq   (List v1) (List v2)  = return $ Bool $ v1 == v2
 infixOp env OpNEq  (List v1) (List v2)  = return $ Bool $ v1 /= v2
-infixOp env OpAdd  (String  v1) (String  v2) = return $ String  $ v1 ++ v2
-infixOp env OpEq   (String v1) (String v2)  = return $ Bool $ v1 == v2
-infixOp env OpNEq  (String v1) (String v2)  = return $ Bool $ v1 /= v2
-infixOp env _  _ _  = return $ Error $ "Attempting to perform an operation with different types."
 
 
 infixOp env op (Var x) v2 = do

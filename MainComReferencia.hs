@@ -14,8 +14,6 @@ import Value
 evalExpr :: StateT -> Expression -> StateTransformer Value
 evalExpr env (VarRef (Id id)) = stateLookup env (-1) id
 evalExpr env (IntLit int) = return $ Int int
-evalExpr env (StringLit a) = return $ String a
-evalExpr env (BoolLit a) = return $ Bool a
 evalExpr env (ArrayLit a) = return $ (List (fillList env a))
 evalExpr env (BracketRef a b) = ST $ \fEnv-> 
     let
@@ -23,10 +21,9 @@ evalExpr env (BracketRef a b) = ST $ \fEnv->
         ((Int pos), ev2) = posit fEnv
         (ST array) = evalExpr env a
         (vl, ev) = array fEnv
-        (VarRef (Id f)) = a
         value = case vl of 
-            (List a) -> if (pos <= ((length a)-1) && pos >= 0) then ((!!) a pos) else Error $ "Trying to access a value out of the list bounds"
-            _ -> Error $ (++) f " is not a list."
+            (List a) -> ((!!) a pos)
+            _ -> Error $ "non-existant array"
     in (value,fEnv)
 evalExpr env (InfixExpr op expr1 expr2) = do
     v1 <- evalExpr env expr1
@@ -56,6 +53,7 @@ evalExpr env (AssignExpr OpAssign (LBracket (VarRef (Id var)) pos) expr) = do
                         ret = List $ (replaceInList v 0 r e)
                     in (ret, s)
             setVar var env newval (-1)
+        _ -> return $ Error $ "Not a list"
 evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
     v <- stateLookup env (-1) var
     case v of
@@ -71,7 +69,7 @@ evalExpr env (AssignExpr assignWithOp (LVar var) expr) = do
 evalExpr env (UnaryAssignExpr op (LVar var))= do
     v <- stateLookup env (-1) var
     case v of
-        (Error _) -> return $ Error $ "Cannot assign/Declare global with unary assignments if variable has not been declared."
+        (Error _) -> return Nil
         _ -> do
             e <- postfixOp env op v
             setVar var env e (-1)
@@ -116,6 +114,7 @@ evalExpr env (CallExpr (VarRef (Id "concat")) env1) = ST $ \senv ->
             else if (callSize /= 2) then return $ Error $ "concat function has not been declared"
                 else return $ Error $ "concat incorrect number of parameters" 
     in retorno senv 
+--CASO PEDIDO.
 evalExpr env (CallExpr (VarRef (Id "len")) env1) = ST $ \senv -> 
     let
         (ST a2) = newScope env
@@ -197,7 +196,6 @@ evalStmt env (BlockStmt (stmt1:stmt2)) = do
         _ -> do 
             e <- evalStmt env stmt1
             case e of
-                (Break) -> return Break
                 (Return v) -> return v
                 _ -> evalStmt env (BlockStmt stmt2)
 --FOR--
@@ -238,27 +236,22 @@ evalStmt env (IfStmt expr ifBlock elseBlock) = do
     b <- evalExpr env expr
     case b of 
         (Bool a) -> do
-            c <- ST $ \s -> let
-                    (ST p) = evalStmt env (if a then ifBlock else elseBlock)
-                in p s
+            c <- evalStmt env (if a then ifBlock else elseBlock)
             return c
-        (Error _) -> return (Error "If-condition cannot be recognized")
+        (Error _) -> return Nil
 --IF-- 
 evalStmt env (IfSingleStmt expr block) = do
     b <- evalExpr env expr
     case b of
         (Bool a)-> do
-            if a then do
-                we <- ST $ \s ->
-                    let (ST f) = evalExpr env expr
-                        (Bool b, newS) = f s
-                        (ST resF) = evalStmt env (block)
-                        (resp, fSt) = resF newS
-                    in resF newS
-                return we
-            else
-                return Nil
-        (Error _)-> return (Error "If-condition cannot be recognized")
+            we <- ST $ \s ->
+                let (ST f) = evalExpr env expr
+                    (Bool b, newS) = f s
+                    (ST resF) = evalStmt env (block)
+                    (resp, fSt) = resF newS
+                in resF newS
+            return we
+        (Error _)-> return Nil
 --BREAK--
 evalStmt env (BreakStmt _) = return Break
 --FUNCTION--
@@ -273,7 +266,6 @@ evalStmt env (FunctionStmt (Id var) param block) = do
 
 
 replaceInList :: [Value] -> Int -> Int -> Value -> [Value]
-replaceInList [] strt pos new = [new]
 replaceInList (a:b) strt pos new = if strt == pos then new:b else
     let
         n = replaceInList b (strt+1) pos new
@@ -281,6 +273,12 @@ replaceInList (a:b) strt pos new = if strt == pos then new:b else
 
 addParam :: StateT -> [Id] -> [Expression] -> StateTransformer Value
 addParam env [] [] = return Nil
+addParam env ((Id a):as) ((VarRef (Id b)):bs) = ST $ \s -> 
+    let
+        (ST p) = setLocalVar a env (Pointer b)
+        (resp, newEnv) = p s 
+        (ST w) = addParam newEnv as bs
+    in w newEnv
 addParam env ((Id a):as) (b:bs) = ST $ \s -> 
     let
         (ST expb) = evalExpr env b
@@ -329,10 +327,6 @@ infixOp env OpLAnd (Bool v1) (Bool v2) = return $ Bool $ v1 && v2
 infixOp env OpLOr  (Bool v1) (Bool v2) = return $ Bool $ v1 || v2
 infixOp env OpEq   (List v1) (List v2)  = return $ Bool $ v1 == v2
 infixOp env OpNEq  (List v1) (List v2)  = return $ Bool $ v1 /= v2
-infixOp env OpAdd  (String  v1) (String  v2) = return $ String  $ v1 ++ v2
-infixOp env OpEq   (String v1) (String v2)  = return $ Bool $ v1 == v2
-infixOp env OpNEq  (String v1) (String v2)  = return $ Bool $ v1 /= v2
-infixOp env _  _ _  = return $ Error $ "Attempting to perform an operation with different types."
 
 
 infixOp env op (Var x) v2 = do
@@ -363,9 +357,15 @@ stateLookup env stck var = ST $ \s -> let
     (Just currStack) = (Map.lookup stck (union s env))
     (ST retorno) = case (Map.lookup var currStack) of
         Nothing -> stateLookup env (stck-1) var
-        (Just a) -> ST $ \f -> let
-                (Just frst) = (Map.lookup var currStack)
-            in (frst, f)
+        (Just a) -> case a of
+                    (Pointer c)-> 
+                        ST $ \f -> let
+                            (ST k) = stateLookup env (-1) c
+                            (value,ignorable) = k f
+                        in (value,f)
+                    _ -> ST $ \f -> let
+                            (Just frst) = (Map.lookup var currStack)
+                        in (frst, f)
     in retorno s
 
 varDecl :: StateT -> VarDecl -> StateTransformer Value
@@ -379,7 +379,18 @@ varDecl env (VarDecl (Id id) maybeExpr) = do
                         _ -> do
                             setVar id env Nil (-1)
         (Just expr) -> do
-            case expr of
+            eval <- evalExpr env expr
+            case eval of
+                (Pointer a) -> do
+                    exists <- stateLookup env (-1) id
+                    case exists of
+                        (Error _) -> ST $ \p ->
+                            let
+                                (ST val) = evalExpr env (VarRef (Id a))
+                                (value,ignoreable) = val p
+                                (ST ohgod) = setLocalVar id env value
+                            in ohgod p
+                        _ -> return $ Error $ "Huh... How do you GET here?"
                 _ -> do
                     exists <- stateLookup env (-1) id
                     case exists of
@@ -417,13 +428,18 @@ setVar var env val stck = ST $ \s -> let
                     let
                         (ST isThis) = case (Map.lookup var currScope) of
                             Nothing -> setVar var (union s1 env) val (stck-1)
-                            (Just a) -> ST $ \f -> 
-                                let
-                                    (ST ign) = evalStmt env EmptyStmt 
-                                    (ret, ignore) = ign f
-                                    modificat = insert var val currScope
-                                    newEnv = insert stck modificat (union f env)
-                                in (ret, newEnv)
+                            (Just a) -> case a of 
+                                        (Pointer b) -> ST $ \f->
+                                            let
+                                                (ST o) = setVar b env val stck
+                                            in o f                                        
+                                        _ -> ST $ \f -> 
+                                            let
+                                                (ST ign) = evalStmt env EmptyStmt 
+                                                (ret, ignore) = ign f
+                                                modificat = insert var val currScope
+                                                newEnv = insert stck modificat (union f env)
+                                            in (ret, newEnv)
                     in isThis s1
                 (Nothing) -> ST $ \s2 -> let 
                         (ST a) = newScope s2
