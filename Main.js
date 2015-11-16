@@ -86,6 +86,17 @@
 // // testando listas
 
 var lista = [3,4,1,2,3,5,6,9,12]
+var start = 0;
+var end = len(lista)-1;
+qs(lista,start,end);
+// var cuck = 1;
+var start = 0;
+var end = len(lista)-1;
+qs(lista,start,end);
+// var cuck = 1;
+var start = 0;
+var end = len(lista)-1;
+qs(lista,start,end);
 
 // var comprimento = len(lista);
 
